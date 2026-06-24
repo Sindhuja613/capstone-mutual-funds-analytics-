@@ -1,0 +1,16 @@
+=================================================================
+DATA QUALITY & INTEGRITY REPORT: SCHEME CODE VALIDATION
+=================================================================
+🔹 Total Unique Schemes cataloged in 'fund_master' : 40
+🔹 Total Unique Schemes recorded in 'nav_history'  : 40
+-----------------------------------------------------------------
+METRIC 1: REFERENTIAL INTEGRITY (Master -> History)
+ STATUS: PASSED
+   All schemes defined in the master data exist in the transaction logs.
+-----------------------------------------------------------------
+ METRIC 2: ORPHAN RECORDS CHECK (History -> Master)
+STATUS: CLEAN
+   No untracked historical records found. All history links back to a valid master.
+=================================================================
+End of Validation Report
+=================================================================
