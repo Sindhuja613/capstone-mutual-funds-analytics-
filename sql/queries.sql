@@ -1,106 +1,1360 @@
 -- ====================================================================
--- CAPSTONE ANALYTICAL QUERIES EXPLICIT MANIFEST
+-- COMPREHENSIVE PRODUCTION ANALYTICS WORKBOOK & OUTPUT LOG
+-- PROJECT: MUTUAL FUNDS ANALYTICS PLATFORM
+-- GENERATED: SYSTEM DYNAMIC PIPELINE VERIFICATION RUN
 -- ====================================================================
 
--- (a) Top 5 Funds by Assets Under Management (AUM)
-SELECT fm.amfi_code, fm.scheme_name, fa.aum_amount_cr, fm.fund_house
-FROM dim_fund fm
-JOIN fund_aum fa ON fm.amfi_code = fa.amfi_code
-ORDER BY fa.aum_amount_cr DESC
-LIMIT 5;;
+-- ============================================================================
+-- QUERY 1: Macro Leaderboard - Top 5 Fund Houses by Corporate AUM
+-- ============================================================================
+SELECT f.fund_house, MAX(a.aum_crore) AS total_aum_crore, a.num_schemes, a.date AS reporting_date
+        FROM fact_aum a
+        JOIN dim_fund f ON a.fund_house = f.fund_house
+        GROUP BY f.fund_house ORDER BY total_aum_crore DESC LIMIT 5;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | fund_house          |   total_aum_crore |   num_schemes | reporting_date   |
+-- |:--------------------|------------------:|--------------:|:-----------------|
+-- | SBI Mutual Fund     |           1250000 |           186 | 2025-03-31       |
+-- | ICICI Prudential MF |           1074000 |           216 | 2025-12-31       |
+-- | HDFC Mutual Fund    |            930000 |           195 | 2025-12-31       |
+-- | Nippon India MF     |            700000 |           177 | 2025-12-31       |
+-- | Kotak Mahindra MF   |            580000 |           168 | 2025-12-31       |
 
--- (b) Monthly Asset Pricing Evolution: Average NAV per Month
-SELECT amfi_code, strftime('%Y-%m', date) AS month, ROUND(AVG(nav), 4) AS avg_nav
-FROM fact_nav
-GROUP BY amfi_code, date
-ORDER BY date DESC, avg_nav DESC;;
+-- ============================================================================
+-- QUERY 2: Asset Pricing Evolution - Average NAV Per Month
+-- ============================================================================
+SELECT n.amfi_code, d.year, d.month, ROUND(AVG(n.nav), 4) AS avg_monthly_nav, COUNT(n.nav) AS trading_days_logged
+        FROM fact_nav n JOIN dim_date d ON n.date = d.date
+        GROUP BY n.amfi_code, d.year, d.month ORDER BY n.amfi_code ASC, d.year DESC, d.month DESC LIMIT 15;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- |   amfi_code |   year |   month |   avg_monthly_nav |   trading_days_logged |
+-- |------------:|-------:|--------:|------------------:|----------------------:|
+-- |      100016 |   2026 |       5 |           592.435 |                   189 |
+-- |      100016 |   2026 |       4 |           610.251 |                   198 |
+-- |      100016 |   2026 |       3 |           588.144 |                   198 |
+-- |      100016 |   2026 |       2 |           593.403 |                   180 |
+-- |      100016 |   2026 |       1 |           632.392 |                   198 |
+-- |      100016 |   2025 |      12 |           618.96  |                   207 |
+-- |      100016 |   2025 |      11 |           601.535 |                   180 |
+-- |      100016 |   2025 |      10 |           616.807 |                   207 |
+-- |      100016 |   2025 |       9 |           594.962 |                   198 |
+-- |      100016 |   2025 |       8 |           590.511 |                   189 |
+-- |      100016 |   2025 |       7 |           602.58  |                   207 |
+-- |      100016 |   2025 |       6 |           603.461 |                   189 |
+-- |      100016 |   2025 |       5 |           613.659 |                   198 |
+-- |      100016 |   2025 |       4 |           611.744 |                   198 |
+-- |      100016 |   2025 |       3 |           619.96  |                   189 |
 
--- (c) Systematic Investment Plan (SIP) Inflow Aggregations
-SELECT strftime('%Y', start_date) AS calendar_year, 
-       ROUND(SUM(monthly_installment), 2) AS total_monthly_sip_inflow,
-       ROUND(SUM(monthly_installment) * 12, 2) AS annualized_sip_run_rate
-FROM fact_sip_industry
-WHERE is_active = 1
-GROUP BY calendar_year
-ORDER BY calendar_year ASC;;
+-- ============================================================================
+-- QUERY 3: Macro Retail Velocity - AMFI Industry SIP Inflow YoY Growth
+-- ============================================================================
+WITH AnnualizedIndustrySIP AS (
+            SELECT CASE WHEN LENGTH(CAST(month AS TEXT)) >= 4 THEN CAST(SUBSTR(CAST(month AS TEXT), 1, 4) AS INTEGER) ELSE month END AS calendar_year,
+                   ROUND(SUM(sip_inflow_crore), 2) AS total_year_inflow_crore, ROUND(AVG(active_sip_accounts_crore), 2) AS avg_active_accounts_crore
+            FROM fact_sip_industry GROUP BY calendar_year
+        )
+        SELECT calendar_year, total_year_inflow_crore, LAG(total_year_inflow_crore, 1) OVER (ORDER BY calendar_year) AS prior_year_inflow_crore,
+               ROUND(((total_year_inflow_crore - LAG(total_year_inflow_crore, 1) OVER (ORDER BY calendar_year)) / LAG(total_year_inflow_crore, 1) OVER (ORDER BY calendar_year)) * 100, 2) AS yoy_growth_pct
+        FROM AnnualizedIndustrySIP ORDER BY calendar_year DESC;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- |   calendar_year |   total_year_inflow_crore |   prior_year_inflow_crore |   yoy_growth_pct |
+-- |----------------:|--------------------------:|--------------------------:|-----------------:|
+-- |            2025 |               3.02166e+06 |               2.42803e+06 |            24.45 |
+-- |            2024 |               2.42803e+06 |               1.66287e+06 |            46.01 |
+-- |            2023 |               1.66287e+06 |               1.34493e+06 |            23.64 |
+-- |            2022 |               1.34493e+06 |             nan           |           nan    |
 
--- (d) Geographic Capital Distribution: Transactions by State
-SELECT sm.type, 
-       COUNT(t.tx_id) AS total_transactions, 
-       ROUND(SUM(t.amount), 2) AS total_transaction_volume
-FROM fact_transactions t
-JOIN dim_investor i ON t.investor_id = i.investor_id
-GROUP BY sm.type
-ORDER BY total_transaction_volume DESC;;
+-- ============================================================================
+-- QUERY 4: Geographic Capital Densities - Transactions and Volume by State
+-- ============================================================================
+SELECT state AS geographic_state, COUNT(tx_id) AS total_transactions_executed, ROUND(SUM(amount_inr), 2) AS total_capital_volume_crore
+        FROM fact_transactions WHERE state IS NOT NULL GROUP BY state ORDER BY total_capital_volume_crore DESC;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | geographic_state   |   total_transactions_executed |   total_capital_volume_crore |
+-- |:-------------------|------------------------------:|-----------------------------:|
+-- | Punjab             |                          2965 |                  3.1578e+08  |
+-- | Tamil Nadu         |                          2806 |                  3.15177e+08 |
+-- | Madhya Pradesh     |                          2931 |                  3.08312e+08 |
+-- | Rajasthan          |                          2577 |                  2.98646e+08 |
+-- | Gujarat            |                          2780 |                  2.98359e+08 |
+-- | West Bengal        |                          2748 |                  2.97183e+08 |
+-- | Telangana          |                          2718 |                  2.90219e+08 |
+-- | Delhi              |                          2677 |                  2.89633e+08 |
+-- | Uttar Pradesh      |                          2695 |                  2.85369e+08 |
+-- | Haryana            |                          2736 |                  2.79634e+08 |
+-- | Karnataka          |                          2621 |                  2.73754e+08 |
+-- | Maharashtra        |                          2524 |                  2.69513e+08 |
 
--- (e) Cost-Optimization Screening: Funds with Expense Ratio < 1%
-SELECT fm.amfi_code, fm.fund_house, fp.expense_ratio, fm.category
-FROM dim_fund fm
-JOIN fact_performance fp ON fm.amfi_code = fp.amfi_code
-WHERE fp.expense_ratio < 1.0
-ORDER BY fp.expense_ratio ASC;;
+-- ============================================================================
+-- QUERY 5: Cost-Efficient Asset Screening - Expense Ratio Under 1%
+-- ============================================================================
+SELECT amfi_code, fund_house, category, expense_ratio_pct AS expense_ratio_pct FROM dim_fund
+        WHERE expense_ratio_pct < 1.0 AND expense_ratio_pct IS NOT NULL ORDER BY expense_ratio_pct ASC LIMIT 15;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- |   amfi_code | fund_house               | category   |   expense_ratio_pct |
+-- |------------:|:-------------------------|:-----------|--------------------:|
+-- |      118636 | Nippon India MF          | Debt       |                0.55 |
+-- |      100025 | HDFC Mutual Fund         | Debt       |                0.56 |
+-- |      120844 | Kotak Mahindra MF        | Debt       |                0.6  |
+-- |      119552 | SBI Mutual Fund          | Equity     |                0.66 |
+-- |      119599 | SBI Mutual Fund          | Equity     |                0.72 |
+-- |      118633 | Nippon India MF          | Equity     |                0.72 |
+-- |      120507 | ICICI Prudential MF      | Debt       |                0.74 |
+-- |      119093 | Axis Mutual Fund         | Equity     |                0.75 |
+-- |      119120 | SBI Mutual Fund          | Debt       |                0.77 |
+-- |      125498 | HDFC Mutual Fund         | Equity     |                0.78 |
+-- |      101208 | Aditya Birla Sun Life MF | Debt       |                0.79 |
+-- |      120504 | ICICI Prudential MF      | Equity     |                0.8  |
+-- |      118635 | Nippon India MF          | Equity     |                0.89 |
+-- |      125497 | HDFC Mutual Fund         | Equity     |                0.92 |
 
--- (6) Liquidity Flow: Net Capital Velocity per Mutual Fund Scheme
-SELECT fm.amfi_code, fm.fund_house,
-       ROUND(SUM(CASE WHEN t.transaction_type = 'BUY' THEN t.amount ELSE 0 END), 2) AS total_purchases,
-       ROUND(SUM(CASE WHEN t.transaction_type = 'SELL' THEN t.amount ELSE 0 END), 2) AS total_redemptions,
-       ROUND(SUM(CASE WHEN t.transaction_type = 'BUY' THEN t.amount ELSE -t.amount END), 2) AS net_capital_velocity
-FROM fact_transactions t
-JOIN dim_fund fm ON t.amfi_code = fm.amfi_code
-GROUP BY fm.amfi_code
-ORDER BY net_capital_velocity DESC;;
+-- ============================================================================
+-- QUERY 6: Data Quality Audit - Identifying Dormant (Zombie) Funds
+-- ============================================================================
+SELECT f.amfi_code, f.fund_house, f.category FROM dim_fund f
+        WHERE NOT EXISTS (SELECT 1 FROM fact_nav n WHERE n.amfi_code = f.amfi_code);;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | amfi_code   | fund_house   | category          |
+-- |:------------|:-------------|:------------------|
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
+-- |             |              | Large Cap         |
+-- |             |              | Mid Cap           |
+-- |             |              | Small Cap         |
+-- |             |              | Flexi Cap         |
+-- |             |              | Large & Mid Cap   |
+-- |             |              | ELSS              |
+-- |             |              | Value/Contra      |
+-- |             |              | Sectoral/Thematic |
+-- |             |              | Liquid            |
+-- |             |              | Short Duration    |
+-- |             |              | Gilt              |
+-- |             |              | Hybrid            |
 
--- (7) AML/KYC Compliance Audit: Inflow Volumes by Verification Status
-SELECT i.kyc_status, 
-       COUNT(t.tx_id) AS total_txns, 
-       ROUND(SUM(t.amount), 2) AS total_capital_volume
-FROM fact_transactions t
-JOIN dim_investor i ON t.investor_id = i.investor_id
-GROUP BY i.kyc_status;;
+-- ============================================================================
+-- QUERY 7: Catalog Structural Profiling - Inventory Share by Category
+-- ============================================================================
+SELECT category AS fund_category, COUNT(amfi_code) AS total_funds_count FROM dim_fund
+        WHERE category IS NOT NULL AND category != '' GROUP BY category ORDER BY total_funds_count DESC;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | fund_category     |   total_funds_count |
+-- |:------------------|--------------------:|
+-- | Equity            |                 306 |
+-- | Debt              |                  54 |
+-- | Large Cap         |                  14 |
+-- | Mid Cap           |                   7 |
+-- | Small Cap         |                   6 |
+-- | Liquid            |                   3 |
+-- | Gilt              |                   2 |
+-- | Flexi Cap         |                   2 |
+-- | Value             |                   1 |
+-- | Short Duration    |                   1 |
+-- | Large & Mid Cap   |                   1 |
+-- | Index/ETF         |                   1 |
+-- | Index             |                   1 |
+-- | ELSS              |                   1 |
+-- | Value/Contra      |                   0 |
+-- | Sectoral/Thematic |                   0 |
+-- | Hybrid            |                   0 |
 
--- (8) Investment Quality Screening: High Sharpe Ratio (>1.5) and Competitive Cost
-SELECT fm.amfi_code, fm.fund_house, fp.sharpe_ratio, fp.return_3yr, fp.expense_ratio
-FROM dim_fund fm
-JOIN fact_performance fp ON fm.amfi_code = fp.amfi_code
-WHERE fp.sharpe_ratio > 1.5 AND fp.expense_ratio <= 1.5
-ORDER BY fp.return_3yr DESC;;
+-- ============================================================================
+-- QUERY 8: Risk Vulnerability Radar - High-Value Lumpsum 'Whale' Logs (> 5Cr)
+-- ============================================================================
+SELECT investor_id, amfi_code, transaction_date, amount_inr AS transaction_amount_crore, transaction_type AS transaction_type FROM fact_transactions
+        WHERE amount_inr > 5.0 AND transaction_type = 'LUMPSUM' ORDER BY amount_inr DESC LIMIT 15;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | investor_id   |   amfi_code | transaction_date   |   transaction_amount_crore | transaction_type   |
+-- |:--------------|------------:|:-------------------|---------------------------:|:-------------------|
+-- | INV004871     |      119551 | 2024-09-09         |                     594649 | LUMPSUM            |
+-- | INV002689     |      101208 | 2024-12-31         |                     593281 | LUMPSUM            |
+-- | INV004413     |      100016 | 2024-08-23         |                     593268 | LUMPSUM            |
+-- | INV004096     |      120506 | 2025-01-19         |                     591658 | LUMPSUM            |
+-- | INV003815     |      119598 | 2024-01-09         |                     591598 | LUMPSUM            |
+-- | INV004404     |      101207 | 2025-03-10         |                     590794 | LUMPSUM            |
+-- | INV001232     |      149322 | 2024-08-27         |                     587530 | LUMPSUM            |
+-- | INV000789     |      120507 | 2025-04-03         |                     586355 | LUMPSUM            |
+-- | INV001228     |      120506 | 2025-03-07         |                     586007 | LUMPSUM            |
+-- | INV000850     |      120844 | 2025-01-26         |                     582751 | LUMPSUM            |
+-- | INV000481     |      101207 | 2025-04-28         |                     581364 | LUMPSUM            |
+-- | INV004728     |      119551 | 2024-12-01         |                     580646 | LUMPSUM            |
+-- | INV004610     |      100025 | 2025-04-22         |                     580462 | LUMPSUM            |
+-- | INV004896     |      102885 | 2024-07-22         |                     579138 | LUMPSUM            |
+-- | INV001185     |      118633 | 2024-11-03         |                     578807 | LUMPSUM            |
 
--- (9) Portfolio Risk Analysis: Peak Lifetime NAV Volatility Spreads
-SELECT scheme_code, 
-       MIN(nav) AS historical_floor, 
-       MAX(nav) AS historical_peak, 
-       ROUND(MAX(nav) - MIN(nav), 4) AS lifetime_volatility_spread
-FROM nav_history
-GROUP BY scheme_code
-ORDER BY lifetime_volatility_spread DESC;;
+-- ============================================================================
+-- QUERY 9: Quant Volatility Shock Tracking - Top 10 Extreme Return Days
+-- ============================================================================
+SELECT amfi_code, date, nav AS closing_nav, daily_return_pct FROM fact_nav
+        WHERE daily_return_pct IS NOT NULL AND daily_return_pct != 0.0 ORDER BY ABS(daily_return_pct) DESC LIMIT 10;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- |   amfi_code | date       |   closing_nav |   daily_return_pct |
+-- |------------:|:-----------|--------------:|-------------------:|
+-- |      119598 | 2024-04-15 |      189.074  |             6.4713 |
+-- |      118634 | 2024-03-19 |      110.54   |             5.9304 |
+-- |      118634 | 2022-06-24 |       67.2534 |            -5.8102 |
+-- |      101207 | 2024-05-01 |       65.5882 |             5.4851 |
+-- |      119599 | 2023-01-10 |      153.222  |             5.332  |
+-- |      101207 | 2023-03-22 |       56.8326 |            -5.1847 |
+-- |      119599 | 2024-01-17 |      136.824  |             5.1811 |
+-- |      119598 | 2022-01-10 |       96.0964 |             5.1113 |
+-- |      118634 | 2023-03-01 |      113.58   |            -5.0335 |
+-- |      119598 | 2022-11-08 |      123.97   |             4.9051 |
 
--- (10) Capital At Risk: Active SIP Commitments in Underperforming Funds
-SELECT fm.scheme_code, fm.scheme_name, fp.sharpe_ratio, 
-       COUNT(s.sip_id) AS active_sip_schedules, 
-       ROUND(SUM(s.monthly_installment), 2) AS monthly_trapped_capital
-FROM dim_fund fm
-JOIN fact_performance fp ON fm.amfi_code = fp.amfi_code
-JOIN fact_sip s ON fm.amfi_code = s.amfi_code
-WHERE fp.is_underperforming_risk_free = 1 AND s.is_active = 1
-GROUP BY fm.amfi_code;;
+-- ============================================================================
+-- QUERY 10: Timeline Calibration Audit - Business Weekday vs Weekend Gap Metrics
+-- ============================================================================
+SELECT CASE WHEN is_weekday = 1 THEN 'Active Trading Weekdays' WHEN is_weekday = 0 THEN 'Weekend Market Close Gaps' ELSE 'Unknown' END AS day_type_classification,
+               COUNT(date_id) AS total_calendar_days_dimensioned FROM dim_date GROUP BY is_weekday;;
 
-----------------------------------------------------------------------
+--  REPOSITORY LIVE DATA SNAPSHOT OUTPUT:
+-- | day_type_classification   |   total_calendar_days_dimensioned |
+-- |:--------------------------|----------------------------------:|
+-- | Active Trading Weekdays   |                              1150 |
 
